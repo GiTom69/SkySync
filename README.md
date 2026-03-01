@@ -9,7 +9,7 @@ Automated flight price tracker with buy/wait AI signals, email alerts, and a bea
 ### 1. Get a Free Amadeus API Key
 
 1. Register at **https://developers.amadeus.com/** (free)
-2. Create a new app → copy your **Client ID** and **Client Secret**
+2. Create a new app → copy your **Client ID** and **s Secret**
 3. The **test environment** returns synthetic (but structurally correct) data — great for development
 4. Switch to **production** with the same keys for real live prices
 
@@ -24,7 +24,7 @@ cp .env.example .env
 
 ```bash
 python -m venv venv
-source venv/bin/activate   # Windows: venv\Scripts\activate
+source venv/Scripts/activate   # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 

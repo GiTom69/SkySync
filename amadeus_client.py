@@ -53,9 +53,29 @@ def _get_fare_class(offer: dict) -> str:
 
 
 def _build_booking_url(origin: str, dest: str, depart: str, ret: str) -> str:
+    """
+    Build booking URL using Skyscanner, which has a predictable URL format.
+    Skyscanner's URL format: 
+    https://www.skyscanner.com/transport/flights/{origin}/{dest}/{depart}/{return}/
+    Works reliably and opens with pre-filled search parameters.
+    """
+    # Ensure airport codes are uppercase (IATA standard)
+    origin_code = origin.upper()
+    dest_code = dest.upper()
+    
+    # Skyscanner uses YYMMDD format for dates (2-digit year)
+    # Convert from YYYY-MM-DD to YYMMDD
+    depart_parts = depart.split('-')
+    depart_formatted = f"{depart_parts[0][2:]}{depart_parts[1]}{depart_parts[2]}"
+    
+    ret_parts = ret.split('-')
+    ret_formatted = f"{ret_parts[0][2:]}{ret_parts[1]}{ret_parts[2]}"
+    
     return (
-        f"https://www.google.com/flights#search;f={origin};t={dest}"
-        f";d={depart};r={ret};tt=r"
+        f"https://www.skyscanner.com/transport/flights/"
+        f"{origin_code}/{dest_code}/{depart_formatted}/{ret_formatted}/"
+        f"?adults=1&adultsv2=1&cabinclass=economy&children=0&childrenv2=&inboundaltsenabled=false"
+        f"&infants=0&outboundaltsenabled=false&preferdirects=false&ref=home&rtn=1"
     )
 
 
@@ -96,6 +116,13 @@ def search_round_trip(
         if baggage_required and not has_baggage:
             continue
 
+        # Try to get booking URL from Amadeus response first
+        booking_url = _build_booking_url(origin, destination, depart_date, return_date)
+        
+        # Check if Amadeus includes a booking link in the response
+        if "links" in offer and "flightOffers" in offer["links"]:
+            booking_url = offer["links"]["flightOffers"]
+
         results.append(
             {
                 "total_price": price,
@@ -106,7 +133,7 @@ def search_round_trip(
                 "baggage_included": has_baggage,
                 "fare_class": _get_fare_class(offer),
                 "source": "amadeus",
-                "booking_url": _build_booking_url(origin, destination, depart_date, return_date),
+                "booking_url": booking_url,
                 "currency": currency,
             }
         )
