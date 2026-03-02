@@ -21,7 +21,14 @@ from pydantic import BaseModel
 from database import engine, get_db, Base
 from models import Tracker, PriceSnapshot
 from analytics import get_buy_signal
-from scheduler import start_scheduler, stop_scheduler, schedule_tracker, unschedule_tracker, trigger_scan_async
+from scheduler import (
+    start_scheduler,
+    stop_scheduler,
+    schedule_tracker,
+    unschedule_tracker,
+    trigger_scan_async,
+    trigger_all_scans_async,
+)
 
 # Create DB tables on startup
 Base.metadata.create_all(bind=engine)
@@ -147,6 +154,12 @@ def manual_scan(tracker_id: int, db: Session = Depends(get_db)):
         raise HTTPException(404, "Tracker not found")
     trigger_scan_async(tracker_id)
     return {"status": "scanning", "tracker_id": tracker_id}
+
+
+@app.post("/api/trackers/scan-all")
+def manual_scan_all():
+    queued = trigger_all_scans_async()
+    return {"status": "scanning", "trackers_queued": queued}
 
 
 # ── History & analytics ───────────────────────────────────────────────────────

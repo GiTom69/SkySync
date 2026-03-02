@@ -5,3 +5,4 @@ __pycache__/
 *.pyc
 templates/
 .vscode/
+tests/

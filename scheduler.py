@@ -100,9 +100,13 @@ def schedule_tracker(tracker_id: int, interval_hours: int) -> None:
     job_id = f"tracker_{tracker_id}"
     if _scheduler.get_job(job_id):
         _scheduler.remove_job(job_id)
+    
+    # Enforce minimum interval of 1 hour to avoid excessive API calls
+    interval_hours = max(1, interval_hours)
+    
     _scheduler.add_job(
         scan_tracker,
-        trigger=IntervalTrigger(hours=max(1, interval_hours)),
+        trigger=IntervalTrigger(hours=interval_hours),
         args=[tracker_id],
         id=job_id,
         replace_existing=True,
@@ -143,3 +147,23 @@ def trigger_scan_async(tracker_id: int) -> None:
     """Fire an immediate scan in a daemon thread (non-blocking)."""
     t = threading.Thread(target=scan_tracker, args=(tracker_id,), daemon=True)
     t.start()
+
+
+def trigger_all_scans_async() -> int:
+    """Trigger immediate scans for all active trackers. Returns number of trackers queued."""
+    from database import SessionLocal
+    from models import Tracker
+
+    db = SessionLocal()
+    try:
+        tracker_ids = [
+            tracker_id
+            for (tracker_id,) in db.query(Tracker.id).filter(Tracker.active == True).all()
+        ]
+    finally:
+        db.close()
+
+    for tracker_id in tracker_ids:
+        trigger_scan_async(tracker_id)
+
+    return len(tracker_ids)
