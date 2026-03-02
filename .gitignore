@@ -3,6 +3,5 @@ venv
 skysync.db
 __pycache__/
 *.pyc
-templates/
 .vscode/
 tests/
