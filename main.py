@@ -118,7 +118,7 @@ def create_tracker(data: TrackerCreate, db: Session = Depends(get_db)):
     # Schedule periodic scans
     schedule_tracker(tracker.id, tracker.scan_interval_hours)
     # Immediate first scan
-    trigger_scan_async(tracker.id)
+    trigger_scan_async(tracker.id, trigger_source="initial")
     return tracker
 
 
@@ -152,7 +152,7 @@ def manual_scan(tracker_id: int, db: Session = Depends(get_db)):
     tracker = db.query(Tracker).filter(Tracker.id == tracker_id, Tracker.active == True).first()
     if not tracker:
         raise HTTPException(404, "Tracker not found")
-    trigger_scan_async(tracker_id)
+    trigger_scan_async(tracker_id, trigger_source="manual")
     return {"status": "scanning", "tracker_id": tracker_id}
 
 

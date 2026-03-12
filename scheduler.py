@@ -9,14 +9,33 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
 _scheduler = BackgroundScheduler(timezone="UTC")
+_tracker_scan_locks = {}
+_tracker_scan_locks_guard = threading.Lock()
 
 
-def scan_tracker(tracker_id: int) -> None:
+def _get_tracker_lock(tracker_id: int) -> threading.Lock:
+    with _tracker_scan_locks_guard:
+        lock = _tracker_scan_locks.get(tracker_id)
+        if lock is None:
+            lock = threading.Lock()
+            _tracker_scan_locks[tracker_id] = lock
+        return lock
+
+
+def scan_tracker(tracker_id: int, trigger_source: str = "scheduled") -> None:
     """Scan one tracker: call Amadeus, persist snapshot, fire alerts if needed."""
     from database import SessionLocal
     from models import Tracker, PriceSnapshot
     from amadeus_client import scan_window
     from notifications import send_desktop_notification, send_email_alert
+
+    tracker_lock = _get_tracker_lock(tracker_id)
+    if not tracker_lock.acquire(blocking=False):
+        print(
+            f"[Scheduler] scan_skipped tracker_id={tracker_id} "
+            f"trigger_source={trigger_source} reason=scan_already_in_progress"
+        )
+        return
 
     db = SessionLocal()
     try:
@@ -28,7 +47,14 @@ def scan_tracker(tracker_id: int) -> None:
         if not tracker:
             return
 
-        print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] Scanning: {tracker.name}")
+        print(
+            f"[{datetime.utcnow().strftime('%H:%M:%S')}] "
+            f"Scanning tracker_id={tracker.id} name={tracker.name!r} "
+            f"trigger_source={trigger_source} route={tracker.origin}->{tracker.destination} "
+            f"window={tracker.window_start}..{tracker.window_end} "
+            f"durations={tracker.duration_min}-{tracker.duration_max} "
+            f"interval_hours={tracker.scan_interval_hours}"
+        )
 
         result = scan_window(
             origin=tracker.origin,
@@ -39,6 +65,16 @@ def scan_tracker(tracker_id: int) -> None:
             duration_max=tracker.duration_max,
             baggage_required=tracker.baggage_required,
             currency=tracker.currency,
+            scan_context={
+                "tracker_id": tracker.id,
+                "tracker_name": tracker.name,
+                "trigger_source": trigger_source,
+                "window_start": tracker.window_start,
+                "window_end": tracker.window_end,
+                "duration_min": tracker.duration_min,
+                "duration_max": tracker.duration_max,
+                "scan_interval_hours": tracker.scan_interval_hours,
+            },
         )
 
         tracker.last_scanned = datetime.utcnow()
@@ -83,16 +119,23 @@ def scan_tracker(tracker_id: int) -> None:
                     )
         else:
             db.commit()
-            print(f"  No results found for {tracker.name}")
+            print(
+                f"[Scheduler] no_results tracker_id={tracker.id} "
+                f"name={tracker.name!r} trigger_source={trigger_source}"
+            )
 
     except Exception as exc:
-        print(f"[Scheduler] Error scanning tracker {tracker_id}: {exc}")
+        print(
+            f"[Scheduler] scan_failed tracker_id={tracker_id} "
+            f"trigger_source={trigger_source} error_type={type(exc).__name__} error={exc}"
+        )
         try:
             db.rollback()
         except Exception:
             pass
     finally:
         db.close()
+        tracker_lock.release()
 
 
 def schedule_tracker(tracker_id: int, interval_hours: int) -> None:
@@ -107,10 +150,11 @@ def schedule_tracker(tracker_id: int, interval_hours: int) -> None:
     _scheduler.add_job(
         scan_tracker,
         trigger=IntervalTrigger(hours=interval_hours),
-        args=[tracker_id],
+        args=[tracker_id, "scheduled"],
         id=job_id,
         replace_existing=True,
         misfire_grace_time=3600,
+        max_instances=1,
     )
 
 
@@ -143,9 +187,15 @@ def stop_scheduler() -> None:
         _scheduler.shutdown(wait=False)
 
 
-def trigger_scan_async(tracker_id: int) -> None:
+def trigger_scan_async(tracker_id: int, trigger_source: str = "manual") -> None:
     """Fire an immediate scan in a daemon thread (non-blocking)."""
-    t = threading.Thread(target=scan_tracker, args=(tracker_id,), daemon=True)
+    thread_name = f"scan-tracker-{tracker_id}-{trigger_source}"
+    t = threading.Thread(
+        target=scan_tracker,
+        args=(tracker_id, trigger_source),
+        daemon=True,
+        name=thread_name,
+    )
     t.start()
 
 
@@ -164,6 +214,6 @@ def trigger_all_scans_async() -> int:
         db.close()
 
     for tracker_id in tracker_ids:
-        trigger_scan_async(tracker_id)
+        trigger_scan_async(tracker_id, trigger_source="manual_all")
 
     return len(tracker_ids)

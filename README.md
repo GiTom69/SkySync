@@ -104,6 +104,16 @@ AMADEUS_ENV=production
 
 The same free Amadeus key works in production with a generous rate limit (1 req/100ms, 1000 calls/month on the free tier).
 
+Optional pacing controls in `.env`:
+
+```env
+AMADEUS_MIN_REQUEST_INTERVAL_SECONDS=0.35
+AMADEUS_MAX_RETRIES=2
+AMADEUS_RETRY_BASE_DELAY_SECONDS=1.5
+```
+
+These settings make SkySync space requests out across concurrent scans and back off when Amadeus responds with `429`.
+
 ---
 
 ## 💡 Tips
